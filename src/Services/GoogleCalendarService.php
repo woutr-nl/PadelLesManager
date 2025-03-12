@@ -249,7 +249,7 @@ class GoogleCalendarService
 
         // Build the event data array
         $eventData = [
-            'summary' => !empty($students) ? 'Padelles met ' . $students[0]->getFirstName() : 'Padel Lesson',
+            'summary' => $this->buildEventSummaryFromStudents($students),
             'description' => $description,
             'start' => [
                 'dateTime' => $lesson->getStartDateTime()->format('c'),
@@ -420,6 +420,26 @@ class GoogleCalendarService
         } catch (\Exception $e) {
             error_log("Failed to delete Google Calendar event: " . $e->getMessage());
             return false;
+        }
+    }
+
+    /**
+     * Build a summary for the event based on the students
+     */
+    private function buildEventSummaryFromStudents(array $students): string {
+        if (empty($students)) {
+            return 'Padel Lesson';
+        }
+
+        $names = array_map(function($student) {
+            return $student->getFirstName();
+        }, $students);
+
+        if (count($names) === 1) {
+            return 'Padelles met ' . $names[0];
+        } else {
+            $lastStudent = array_pop($names);
+            return 'Padelles met ' . implode(', ', $names) . ' en ' . $lastStudent;
         }
     }
 } 
