@@ -55,6 +55,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             $error = 'Failed to add lessons. Please try again.';
         }
+    } elseif ($action === 'lower_lessons') {
+        $student = Student::findById((int)$_POST['student_id']);
+        $amount = (int)$_POST['amount'];
+        if ($student && $amount > 0 && $student->lowerLessons($amount)) {
+            $success = "Successfully lowered {$student->getFullName()}'s lessons by {$amount}.";
+        } else {
+            $error = 'Failed to lower lessons. Please ensure the amount is valid and the student has enough lessons.';
+        }
     }
 }
 
@@ -286,6 +294,10 @@ $students = Student::findAll();
                                                         onclick="showAddLessonsModal(<?= $s->getId() ?>, '<?= htmlspecialchars($s->getFullName()) ?>')">
                                                     <i class="bi bi-plus-circle"></i>
                                                 </button>
+                                                <button type="button" class="btn btn-sm btn-outline-danger ms-1" 
+                                                        onclick="showLowerLessonsModal(<?= $s->getId() ?>, '<?= htmlspecialchars($s->getFullName()) ?>', <?= $remaining ?>)">
+                                                    <i class="bi bi-dash-circle"></i>
+                                                </button>
                                             </td>
                                             <td>
                                                 <div class="btn-group btn-group-sm">
@@ -345,6 +357,39 @@ $students = Student::findAll();
         </div>
     </div>
 
+    <!-- Lower Lessons Modal -->
+    <div class="modal fade" id="lowerLessonsModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <form method="POST" action="/students.php">
+                    <input type="hidden" name="action" value="lower_lessons">
+                    <input type="hidden" name="student_id" id="lowerModalStudentId">
+                    
+                    <div class="modal-header">
+                        <h5 class="modal-title">Lower Lessons</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    
+                    <div class="modal-body">
+                        <p>Lower lessons for <span id="lowerModalStudentName"></span></p>
+                        <p>Current lessons remaining: <span id="currentLessonsRemaining" class="fw-bold"></span></p>
+                        <div class="mb-3">
+                            <label for="lowerAmount" class="form-label">Number of Lessons to Remove</label>
+                            <input type="number" class="form-control" id="lowerAmount" name="amount" 
+                                   min="1" value="1" required>
+                            <div class="form-text">The student will have <span id="resultingLessons"></span> lessons after this operation.</div>
+                        </div>
+                    </div>
+                    
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-danger">Lower Lessons</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <form id="deleteForm" method="POST" style="display: none;">
         <input type="hidden" name="action" value="delete">
         <input type="hidden" name="id" value="">
@@ -353,15 +398,47 @@ $students = Student::findAll();
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         let addLessonsModal;
+        let lowerLessonsModal;
         
         document.addEventListener('DOMContentLoaded', function() {
             addLessonsModal = new bootstrap.Modal(document.getElementById('addLessonsModal'));
+            lowerLessonsModal = new bootstrap.Modal(document.getElementById('lowerLessonsModal'));
+            
+            // Set up the dynamic calculation for the lower lessons modal
+            const lowerAmountInput = document.getElementById('lowerAmount');
+            if (lowerAmountInput) {
+                lowerAmountInput.addEventListener('input', updateResultingLessons);
+            }
         });
 
         function showAddLessonsModal(studentId, studentName) {
             document.getElementById('modalStudentId').value = studentId;
             document.getElementById('modalStudentName').textContent = studentName;
             addLessonsModal.show();
+        }
+        
+        function showLowerLessonsModal(studentId, studentName, currentLessons) {
+            document.getElementById('lowerModalStudentId').value = studentId;
+            document.getElementById('lowerModalStudentName').textContent = studentName;
+            document.getElementById('currentLessonsRemaining').textContent = currentLessons;
+            
+            // Set max value to current lessons
+            const lowerAmountInput = document.getElementById('lowerAmount');
+            lowerAmountInput.max = currentLessons;
+            lowerAmountInput.value = Math.min(1, currentLessons);
+            
+            // Update the resulting lessons display
+            updateResultingLessons();
+            
+            lowerLessonsModal.show();
+        }
+        
+        function updateResultingLessons() {
+            const currentLessons = parseInt(document.getElementById('currentLessonsRemaining').textContent);
+            const amountToLower = parseInt(document.getElementById('lowerAmount').value) || 0;
+            const resulting = Math.max(0, currentLessons - amountToLower);
+            
+            document.getElementById('resultingLessons').textContent = resulting;
         }
 
         function deleteStudent(id) {

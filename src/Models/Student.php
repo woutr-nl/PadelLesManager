@@ -124,6 +124,36 @@ class Student {
         return false;
     }
 
+    public function lowerLessons(int $amount): bool {
+        if ($amount <= 0) {
+            return false;
+        }
+
+        // Calculate new value, ensuring it doesn't go below 0
+        $newValue = max(0, $this->lessonsRemaining - $amount);
+        $actualDeduction = $this->lessonsRemaining - $newValue;
+
+        if ($actualDeduction <= 0) {
+            return false; // Nothing to deduct
+        }
+
+        try {
+            $stmt = Database::query(
+                "UPDATE students SET lessons_remaining = ? WHERE id = ?",
+                [$newValue, $this->id]
+            );
+            
+            if ($stmt->rowCount() > 0) {
+                $this->lessonsRemaining = $newValue;
+                return true;
+            }
+        } catch (\PDOException $e) {
+            return false;
+        }
+        
+        return false;
+    }
+
     public function delete(): bool {
         try {
             $stmt = Database::query(
