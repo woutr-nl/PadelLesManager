@@ -1,0 +1,1 @@
+ALTER TABLE lessons ADD COLUMN google_event_id VARCHAR(255) DEFAULT NULL AFTER entry_code; 

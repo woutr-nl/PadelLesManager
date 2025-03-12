@@ -153,8 +153,19 @@ class Database {
     }
     
     public static function query(string $query, array $params = []): \PDOStatement {
-        $stmt = self::getInstance()->prepare($query);
-        $stmt->execute($params);
-        return $stmt;
+        try {
+            error_log("Executing query: " . $query);
+            error_log("Query parameters: " . json_encode($params));
+            
+            $stmt = self::getInstance()->prepare($query);
+            $stmt->execute($params);
+            
+            error_log("Query execution complete. Affected rows: " . $stmt->rowCount());
+            
+            return $stmt;
+        } catch (\PDOException $e) {
+            error_log("Database query error: " . $e->getMessage() . " - Query: " . $query);
+            throw $e;
+        }
     }
 } 

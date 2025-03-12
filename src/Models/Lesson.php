@@ -19,6 +19,7 @@ class Lesson {
     private string $createdAt;
     private array $students = [];
     private ?Location $location = null;
+    private ?string $entryCode;
 
     public function __construct(array $data = []) {
         $this->id = $data['id'] ?? 0;
@@ -30,6 +31,7 @@ class Lesson {
         $this->notes = $data['notes'] ?? null;
         $this->googleEventId = $data['google_event_id'] ?? null;
         $this->createdAt = $data['created_at'] ?? '';
+        $this->entryCode = $data['entry_code'] ?? null;
     }
 
     public static function create(array $data): ?Lesson {
@@ -38,14 +40,15 @@ class Lesson {
 
             // Create the lesson
             $stmt = Database::query(
-                "INSERT INTO lessons (lesson_date, start_time, end_time, instructor, location_id, notes) VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO lessons (lesson_date, start_time, end_time, instructor, location_id, notes, entry_code) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 [
                     $data['lesson_date'],
                     $data['start_time'],
                     $data['end_time'],
                     $data['instructor'],
                     $data['location_id'] ?? null,
-                    $data['notes'] ?? null
+                    $data['notes'] ?? null,
+                    $data['entry_code'] ?? null
                 ]
             );
             
@@ -75,11 +78,13 @@ class Lesson {
                     $calendarService = new GoogleCalendarService();
                     $eventId = $calendarService->createLessonEvent($lesson, $lesson->students);
                     if ($eventId) {
+                        // Now that we have the google_event_id column, we can store it in the database
                         Database::query(
                             "UPDATE lessons SET google_event_id = ? WHERE id = ?",
                             [$eventId, $lessonId]
                         );
                         $lesson->googleEventId = $eventId;
+                        error_log("Google Calendar event created with ID: " . $eventId);
                     }
                 }
 
@@ -98,19 +103,92 @@ class Lesson {
         try {
             Database::getInstance()->beginTransaction();
 
+            // Log the update data for debugging
+            error_log("Updating lesson ID: " . $this->id . " with data: " . json_encode($data));
+            
+            // Log current values
+            error_log("Current lesson values: " . json_encode([
+                'lesson_date' => $this->lessonDate,
+                'start_time' => $this->startTime,
+                'end_time' => $this->endTime,
+                'instructor' => $this->instructor,
+                'location_id' => $this->locationId,
+                'notes' => $this->notes,
+                'entry_code' => $this->entryCode,
+                'google_event_id' => $this->googleEventId
+            ]));
+
+            // Log the actual values being used in the query
+            $updateValues = [
+                'lesson_date' => $data['lesson_date'] ?? $this->lessonDate,
+                'start_time' => $data['start_time'] ?? $this->startTime,
+                'end_time' => $data['end_time'] ?? $this->endTime,
+                'instructor' => $data['instructor'] ?? $this->instructor,
+                'location_id' => $data['location_id'] ?? $this->locationId,
+                'notes' => $data['notes'] ?? $this->notes,
+                'entry_code' => $data['entry_code'] ?? $this->entryCode,
+                'google_event_id' => $data['google_event_id'] ?? $this->googleEventId
+            ];
+            error_log("Values being used in update query: " . json_encode($updateValues));
+
             // Update basic lesson information
-            $stmt = Database::query(
-                "UPDATE lessons SET lesson_date = ?, start_time = ?, end_time = ?, instructor = ?, location_id = ?, notes = ? WHERE id = ?",
-                [
-                    $data['lesson_date'] ?? $this->lessonDate,
-                    $data['start_time'] ?? $this->startTime,
-                    $data['end_time'] ?? $this->endTime,
-                    $data['instructor'] ?? $this->instructor,
-                    $data['location_id'] ?? $this->locationId,
-                    $data['notes'] ?? $this->notes,
-                    $this->id
-                ]
-            );
+            $query = "UPDATE lessons SET lesson_date = ?, start_time = ?, end_time = ?, instructor = ?, location_id = ?, notes = ?, entry_code = ?, google_event_id = ? WHERE id = ?";
+            error_log("Update query: " . $query);
+            
+            $params = [
+                $data['lesson_date'] ?? $this->lessonDate,
+                $data['start_time'] ?? $this->startTime,
+                $data['end_time'] ?? $this->endTime,
+                $data['instructor'] ?? $this->instructor,
+                $data['location_id'] ?? $this->locationId,
+                $data['notes'] ?? $this->notes,
+                $data['entry_code'] ?? $this->entryCode,
+                $data['google_event_id'] ?? $this->googleEventId,
+                $this->id
+            ];
+            error_log("Query parameters: " . json_encode($params));
+            
+            // Execute the query directly with PDO to get more control
+            try {
+                $pdo = Database::getInstance();
+                $stmt = $pdo->prepare($query);
+                $result = $stmt->execute($params);
+                error_log("PDO execute result: " . ($result ? "true" : "false"));
+                error_log("PDO error info: " . json_encode($stmt->errorInfo()));
+                error_log("Update query affected rows: " . $stmt->rowCount());
+                
+                // If no rows were affected, try to understand why
+                if ($stmt->rowCount() === 0) {
+                    // Check if the record exists
+                    $checkStmt = $pdo->prepare("SELECT COUNT(*) FROM lessons WHERE id = ?");
+                    $checkStmt->execute([$this->id]);
+                    $count = $checkStmt->fetchColumn();
+                    error_log("Record exists check: " . ($count > 0 ? "Yes" : "No"));
+                    
+                    if ($count > 0) {
+                        // Record exists but no changes were made
+                        error_log("Record exists but no changes were made. This could be because the new values are identical to the old ones.");
+                        
+                        // Verify current values in database
+                        $verifyStmt = $pdo->prepare("SELECT * FROM lessons WHERE id = ?");
+                        $verifyStmt->execute([$this->id]);
+                        $currentRecord = $verifyStmt->fetch(PDO::FETCH_ASSOC);
+                        error_log("Current record in database: " . json_encode($currentRecord));
+                        
+                        // Force update by adding a timestamp to notes if requested
+                        if (!empty($data['force_update'])) {
+                            error_log("Forcing update by adding timestamp to notes");
+                            $forceQuery = "UPDATE lessons SET notes = CONCAT(IFNULL(notes, ''), ' [Updated: ', NOW(), ']') WHERE id = ?";
+                            $forceStmt = $pdo->prepare($forceQuery);
+                            $forceResult = $forceStmt->execute([$this->id]);
+                            error_log("Force update result: " . ($forceResult ? "true" : "false") . ", rows: " . $forceStmt->rowCount());
+                        }
+                    }
+                }
+            } catch (\PDOException $e) {
+                error_log("PDO Exception during update: " . $e->getMessage());
+                throw $e;
+            }
 
             // Update student assignments if provided
             if (isset($data['student_ids'])) {
@@ -151,28 +229,99 @@ class Lesson {
 
                 // Update Google Calendar event
                 if ($this->googleEventId) {
-                    $calendarService = new GoogleCalendarService();
-                    $students = array_map(fn($id) => Student::findById($id), $newStudentIds);
-                    $students = array_filter($students); // Remove null values
-                    $calendarService->updateLessonEvent($this->googleEventId, $this, $students);
+                    try {
+                        error_log("Updating Google Calendar event after student changes");
+                        error_log("Entry code for student update: " . ($this->entryCode ?? 'None'));
+                        
+                        // Force reload location to ensure we have the latest data
+                        if ($this->locationId) {
+                            $this->location = Location::findById($this->locationId);
+                            error_log("Reloaded location: " . ($this->location ? $this->location->getName() : 'None'));
+                        }
+                        
+                        $calendarService = new GoogleCalendarService();
+                        $students = array_map(fn($id) => Student::findById($id), $newStudentIds);
+                        $students = array_filter($students); // Remove null values
+                        $success = $calendarService->updateLessonEvent($this->googleEventId, $this, $students);
+                        
+                        if ($success) {
+                            error_log("Successfully updated Google Calendar event after student changes: " . $this->googleEventId);
+                        } else {
+                            error_log("Failed to update Google Calendar event after student changes: " . $this->googleEventId);
+                        }
+                    } catch (\Exception $e) {
+                        error_log("Failed to update Google Calendar event after student changes: " . $e->getMessage());
+                    }
                 }
             }
 
             Database::getInstance()->commit();
             
-            // Update object properties
+            // Update object properties regardless of database changes
+            // This ensures the object reflects the intended changes even if the database didn't change
             $this->lessonDate = $data['lesson_date'] ?? $this->lessonDate;
             $this->startTime = $data['start_time'] ?? $this->startTime;
             $this->endTime = $data['end_time'] ?? $this->endTime;
             $this->instructor = $data['instructor'] ?? $this->instructor;
             $this->locationId = $data['location_id'] ?? $this->locationId;
             $this->notes = $data['notes'] ?? $this->notes;
+            $this->entryCode = $data['entry_code'] ?? $this->entryCode;
+            $this->googleEventId = $data['google_event_id'] ?? $this->googleEventId;
             $this->location = null; // Reset cached location
+            
+            error_log("Object properties updated. New values: " . json_encode([
+                'lesson_date' => $this->lessonDate,
+                'start_time' => $this->startTime,
+                'end_time' => $this->endTime,
+                'instructor' => $this->instructor,
+                'location_id' => $this->locationId,
+                'notes' => $this->notes,
+                'entry_code' => $this->entryCode,
+                'google_event_id' => $this->googleEventId
+            ]));
+            
+            // Update Google Calendar event if we have an ID and student_ids weren't provided
+            // (if student_ids were provided, the calendar update is handled in the student assignment section)
+            if ($this->googleEventId && !isset($data['student_ids'])) {
+                try {
+                    error_log("Updating Google Calendar event after property changes");
+                    error_log("Entry code for update: " . ($this->entryCode ?? 'None'));
+                    
+                    $calendarService = new GoogleCalendarService();
+                    $students = $this->getStudents();
+                    
+                    // Force reload location to ensure we have the latest data
+                    if ($this->locationId) {
+                        $this->location = Location::findById($this->locationId);
+                        error_log("Reloaded location: " . ($this->location ? $this->location->getName() : 'None'));
+                    }
+                    
+                    // Always update the calendar event, even if database update didn't affect rows
+                    $success = $calendarService->updateLessonEvent($this->googleEventId, $this, $students);
+                    if ($success) {
+                        error_log("Successfully updated Google Calendar event: " . $this->googleEventId);
+                    } else {
+                        error_log("Failed to update Google Calendar event: " . $this->googleEventId);
+                    }
+                } catch (\Exception $e) {
+                    error_log("Failed to update Google Calendar event after property changes: " . $e->getMessage());
+                }
+            }
             
             return true;
         } catch (\Exception $e) {
             Database::getInstance()->rollBack();
             error_log("Failed to update lesson: " . $e->getMessage());
+            error_log("Exception trace: " . $e->getTraceAsString());
+            
+            // Check if it's a PDO exception for more details
+            if ($e instanceof \PDOException) {
+                error_log("PDO Error code: " . $e->getCode());
+                error_log("SQL State: " . $e->errorInfo[0] ?? 'N/A');
+                error_log("Driver Error code: " . $e->errorInfo[1] ?? 'N/A');
+                error_log("Driver Error message: " . $e->errorInfo[2] ?? 'N/A');
+            }
+            
             return false;
         }
     }
@@ -189,8 +338,14 @@ class Lesson {
 
             // Delete Google Calendar event
             if ($this->googleEventId) {
-                $calendarService = new GoogleCalendarService();
-                $calendarService->deleteLessonEvent($this->googleEventId);
+                try {
+                    $calendarService = new GoogleCalendarService();
+                    $calendarService->deleteLessonEvent($this->googleEventId);
+                    error_log("Deleted Google Calendar event: " . $this->googleEventId);
+                } catch (\Exception $e) {
+                    error_log("Failed to delete Google Calendar event: " . $e->getMessage());
+                    // Continue with deletion even if Google Calendar sync fails
+                }
             }
 
             // Delete student assignments and the lesson
@@ -370,5 +525,10 @@ class Lesson {
 
     public function getLocationId(): ?int {
         return $this->locationId;
+    }
+
+    public function getEntryCode(): ?string {
+        // Make sure we return null if the entry code is empty
+        return !empty($this->entryCode) ? $this->entryCode : null;
     }
 } 

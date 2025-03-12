@@ -19,99 +19,183 @@ $calendarService = new GoogleCalendarService();
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
     
-    if ($action === 'create' || $action === 'update') {
+    error_log("Lesson form submitted with action: " . $action);
+    error_log("POST data: " . json_encode($_POST));
+    
+    if ($action === 'create') {
         $data = [
             'lesson_date' => $_POST['lesson_date'] ?? '',
             'start_time' => $_POST['start_time'] ?? '',
             'end_time' => $_POST['end_time'] ?? '',
             'instructor' => $_POST['instructor'] ?? '',
             'location_id' => $_POST['location_id'] ?? null,
-            'notes' => $_POST['notes'] ?? ''
+            'notes' => $_POST['notes'] ?? '',
+            'entry_code' => $_POST['entry_code'] ?? null
         ];
         
-        if ($action === 'create') {
-            $lesson = Lesson::create($data);
-            if ($lesson) {
-                // Add selected students to the lesson
-                if (isset($_POST['students']) && is_array($_POST['students'])) {
-                    foreach ($_POST['students'] as $studentId) {
-                        $student = Student::findById((int)$studentId);
-                        if ($student) {
-                            $lesson->addStudent($student);
-                        }
-                    }
-                }
-                
-                // Create Google Calendar event
-                try {
-                    $calendarService->createEvent($lesson);
-                    $success = 'Lesson created and synced with Google Calendar!';
-                } catch (Exception $e) {
-                    $success = 'Lesson created but failed to sync with Google Calendar: ' . $e->getMessage();
-                }
-                
-                header('Location: /lessons.php');
-                exit();
+        // Add student_ids to data if present
+        if (isset($_POST['student_ids']) && is_array($_POST['student_ids'])) {
+            $data['student_ids'] = array_map('intval', $_POST['student_ids']);
+        }
+        
+        $lesson = Lesson::create($data);
+        if ($lesson) {
+            // The Google Calendar event is already created in the Lesson::create method
+            // No need to create it again here
+            $success = 'Lesson created successfully!';
+            
+            header('Location: /lessons.php');
+            exit();
+        } else {
+            $error = 'Failed to create lesson. Please try again.';
+        }
+    } elseif ($action === 'edit' || $action === 'update') {
+        $lessonId = (int)($_POST['lesson_id'] ?? $_POST['id'] ?? 0);
+        error_log("Attempting to update lesson ID: " . $lessonId);
+        
+        if ($lessonId <= 0) {
+            error_log("Invalid lesson ID for update: " . $lessonId);
+            $_SESSION['flash_message'] = ['type' => 'danger', 'message' => 'Invalid lesson ID.'];
+            header('Location: /lessons.php');
+            exit;
+        }
+        
+        $lesson = Lesson::findById($lessonId);
+        if ($lesson) {
+            error_log("Found lesson to update: " . json_encode([
+                'id' => $lesson->getId(),
+                'date' => $lesson->getLessonDate(),
+                'instructor' => $lesson->getInstructor()
+            ]));
+            
+            // Include student_ids in the update data
+            $updateData = [
+                'lesson_date' => $_POST['lesson_date'] ?? $lesson->getLessonDate(),
+                'start_time' => $_POST['start_time'] ?? $lesson->getStartTime(),
+                'end_time' => $_POST['end_time'] ?? $lesson->getEndTime(),
+                'instructor' => $_POST['instructor'] ?? $lesson->getInstructor(),
+                'location_id' => !empty($_POST['location_id']) ? (int)$_POST['location_id'] : null,
+                'notes' => $_POST['notes'] ?? null,
+                'entry_code' => $_POST['entry_code'] ?? null,
+                'force_update' => true // Force the update to apply even if values appear identical
+            ];
+            
+            // Add student_ids to data if present
+            if (isset($_POST['student_ids']) && is_array($_POST['student_ids'])) {
+                $updateData['student_ids'] = array_map('intval', $_POST['student_ids']);
+            }
+            
+            error_log("Update data prepared: " . json_encode($updateData));
+            
+            $success = $lesson->update($updateData);
+            error_log("Lesson update result: " . ($success ? "Success" : "Failed"));
+            
+            if ($success) {
+                $_SESSION['flash_message'] = ['type' => 'success', 'message' => 'Lesson updated successfully!'];
             } else {
-                $error = 'Failed to create lesson. Please try again.';
+                $_SESSION['flash_message'] = ['type' => 'danger', 'message' => 'Failed to update lesson.'];
             }
         } else {
-            $lesson = Lesson::findById((int)$_POST['id']);
-            if ($lesson && $lesson->update($data)) {
-                $success = 'Lesson updated successfully!';
-                
-                // Update student attendance status
-                if (isset($_POST['student_status']) && is_array($_POST['student_status'])) {
-                    foreach ($_POST['student_status'] as $studentId => $status) {
-                        $student = Student::findById((int)$studentId);
-                        if ($student) {
-                            $lesson->updateStudentStatus($student, $status);
-                        }
-                    }
-                }
-                
-                // Update Google Calendar event
-                try {
-                    $calendarService->updateEvent($lesson);
-                    $success .= ' and synced with Google Calendar!';
-                } catch (Exception $e) {
-                    $success .= ' but failed to sync with Google Calendar: ' . $e->getMessage();
-                }
-            } else {
-                $error = 'Failed to update lesson. Please try again.';
-            }
+            error_log("Lesson not found for ID: " . $lessonId);
+            $_SESSION['flash_message'] = ['type' => 'danger', 'message' => 'Lesson not found.'];
         }
+        
+        header('Location: /lessons.php');
+        exit;
     } elseif ($action === 'delete') {
-        $lesson = Lesson::findById((int)$_POST['id']);
+        $lessonId = (int)($_POST['lesson_id'] ?? $_POST['id'] ?? 0);
+        error_log("Attempting to delete lesson ID: " . $lessonId);
+        
+        if ($lessonId <= 0) {
+            error_log("Invalid lesson ID for deletion: " . $lessonId);
+            $_SESSION['flash_message'] = ['type' => 'danger', 'message' => 'Invalid lesson ID.'];
+            header('Location: /lessons.php');
+            exit;
+        }
+        
+        $lesson = Lesson::findById($lessonId);
         if ($lesson) {
             // Delete Google Calendar event first
             try {
-                $calendarService->deleteEvent($lesson);
+                if ($lesson->getGoogleEventId()) {
+                    $calendarService->deleteLessonEvent($lesson->getGoogleEventId());
+                    error_log("Deleted Google Calendar event: " . $lesson->getGoogleEventId());
+                }
             } catch (Exception $e) {
                 // Continue with deletion even if Google Calendar sync fails
                 error_log('Failed to delete Google Calendar event: ' . $e->getMessage());
             }
             
             if ($lesson->delete()) {
+                $_SESSION['flash_message'] = ['type' => 'success', 'message' => 'Lesson deleted successfully!'];
                 header('Location: /lessons.php');
                 exit();
+            } else {
+                $_SESSION['flash_message'] = ['type' => 'danger', 'message' => 'Failed to delete lesson.'];
             }
+        } else {
+            error_log("Lesson not found for deletion, ID: " . $lessonId);
+            $_SESSION['flash_message'] = ['type' => 'danger', 'message' => 'Lesson not found.'];
         }
-        $error = 'Failed to delete lesson. Please try again.';
+        
+        header('Location: /lessons.php');
+        exit;
     } elseif ($action === 'sync') {
-        $lesson = Lesson::findById((int)$_POST['id']);
+        $lessonId = (int)($_POST['lesson_id'] ?? $_POST['id'] ?? 0);
+        error_log("Attempting to sync lesson ID: " . $lessonId);
+        
+        if ($lessonId <= 0) {
+            error_log("Invalid lesson ID for sync: " . $lessonId);
+            $_SESSION['flash_message'] = ['type' => 'danger', 'message' => 'Invalid lesson ID.'];
+            header('Location: /lessons.php');
+            exit;
+        }
+        
+        $lesson = Lesson::findById($lessonId);
         if ($lesson) {
             try {
-                if ($lesson->getGoogleEventId()) {
-                    $calendarService->updateEvent($lesson);
-                } else {
-                    $calendarService->createEvent($lesson);
+                $students = $lesson->getStudents();
+                
+                // Force reload location to ensure we have the latest data
+                if ($lesson->getLocationId()) {
+                    $location = Location::findById($lesson->getLocationId());
+                    error_log("Reloaded location for sync: " . ($location ? $location->getName() : 'None'));
                 }
-                $success = 'Lesson synced with Google Calendar!';
+                
+                error_log("Entry code for sync: " . ($lesson->getEntryCode() ?? 'None'));
+                
+                if ($lesson->getGoogleEventId()) {
+                    // Update existing event
+                    error_log("Updating existing Google Calendar event: " . $lesson->getGoogleEventId());
+                    $success = $calendarService->updateLessonEvent($lesson->getGoogleEventId(), $lesson, $students);
+                    if ($success) {
+                        $_SESSION['flash_message'] = ['type' => 'success', 'message' => 'Lesson updated in Google Calendar!'];
+                    } else {
+                        $_SESSION['flash_message'] = ['type' => 'warning', 'message' => 'Failed to update Google Calendar event.'];
+                    }
+                } else {
+                    // Create new event
+                    error_log("Creating new Google Calendar event for lesson ID: " . $lessonId);
+                    $eventId = $calendarService->createLessonEvent($lesson, $students);
+                    if ($eventId) {
+                        // Update the lesson with the new event ID
+                        $lesson->update(['google_event_id' => $eventId]);
+                        $_SESSION['flash_message'] = ['type' => 'success', 'message' => 'Lesson synced with Google Calendar!'];
+                    } else {
+                        $_SESSION['flash_message'] = ['type' => 'warning', 'message' => 'Failed to create Google Calendar event.'];
+                    }
+                }
             } catch (Exception $e) {
-                $error = 'Failed to sync with Google Calendar: ' . $e->getMessage();
+                error_log("Failed to sync with Google Calendar: " . $e->getMessage());
+                $_SESSION['flash_message'] = ['type' => 'danger', 'message' => 'Failed to sync with Google Calendar: ' . $e->getMessage()];
             }
+        } else {
+            error_log("Lesson not found for sync, ID: " . $lessonId);
+            $_SESSION['flash_message'] = ['type' => 'danger', 'message' => 'Lesson not found.'];
         }
+        
+        header('Location: /lessons.php');
+        exit;
     }
 }
 
@@ -164,6 +248,9 @@ $locations = Location::findAll();
                     <li class="nav-item">
                         <a class="nav-link active" href="/lessons.php">Lessons</a>
                     </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/locations.php">Locations</a>
+                    </li>
                 </ul>
                 <ul class="navbar-nav">
                     <li class="nav-item">
@@ -189,10 +276,10 @@ $locations = Location::findAll();
                     <h5 class="mb-0"><?= $action === 'create' ? 'Schedule New Lesson' : 'Edit Lesson' ?></h5>
                 </div>
                 <div class="card-body">
-                    <form method="POST" action="/lessons.php">
-                        <input type="hidden" name="action" value="<?= $action === 'create' ? 'create' : 'update' ?>">
+                    <form method="POST" action="/lessons.php" class="needs-validation" novalidate>
+                        <input type="hidden" name="action" value="<?= $action === 'create' ? 'create' : 'edit' ?>">
                         <?php if ($lesson): ?>
-                            <input type="hidden" name="id" value="<?= $lesson->getId() ?>">
+                            <input type="hidden" name="lesson_id" value="<?= $lesson->getId() ?>">
                         <?php endif; ?>
                         
                         <div class="row mb-3">
@@ -221,7 +308,7 @@ $locations = Location::findAll();
 
                         <div class="mb-3">
                             <label for="location_id" class="form-label">Location</label>
-                            <select class="form-select" id="location_id" name="location_id">
+                            <select class="form-select" id="location_id" name="location_id" required>
                                 <option value="">Select a location...</option>
                                 <?php foreach ($locations as $loc): ?>
                                     <option value="<?= $loc->getId() ?>" 
@@ -237,35 +324,44 @@ $locations = Location::findAll();
 
                         <div class="mb-3 entry-code-field" style="display: none;">
                             <label for="entry_code" class="form-label">Entry Code</label>
+                            <?php 
+                                $entryCodeValue = $lesson ? $lesson->getEntryCode() : '';
+                                error_log("Entry code value for form: " . ($entryCodeValue ?? 'null'));
+                            ?>
                             <input type="text" class="form-control" id="entry_code" name="entry_code" 
-                                   value="<?= $lesson ? htmlspecialchars($lesson->getEntryCode()) : '' ?>"
+                                   value="<?= htmlspecialchars($entryCodeValue ?? '') ?>"
                                    maxlength="20">
                             <div class="form-text">The code needed to enter this location for this lesson.</div>
                         </div>
-                        
+
                         <div class="mb-3">
                             <label for="notes" class="form-label">Notes</label>
                             <textarea class="form-control" id="notes" name="notes" rows="3"><?= $lesson ? htmlspecialchars($lesson->getNotes()) : '' ?></textarea>
                         </div>
-                        
-                        <?php if ($action === 'create'): ?>
-                            <div class="mb-3">
-                                <label class="form-label">Select Students</label>
-                                <div class="row row-cols-1 row-cols-md-3 g-3">
-                                    <?php foreach ($students as $student): ?>
-                                        <div class="col">
-                                            <div class="form-check">
-                                                <input class="form-check-input" type="checkbox" name="students[]" 
-                                                       value="<?= $student->getId() ?>" id="student_<?= $student->getId() ?>">
-                                                <label class="form-check-label" for="student_<?= $student->getId() ?>">
-                                                    <?= htmlspecialchars($student->getFullName()) ?>
-                                                </label>
-                                            </div>
+
+                        <div class="mb-3">
+                            <label class="form-label"><?= $action === 'create' ? 'Select Students' : 'Manage Students' ?></label>
+                            <div class="row row-cols-1 row-cols-md-3 g-3">
+                                <?php 
+                                $lessonStudentIds = $lesson ? array_map(fn($s) => $s->getId(), $lesson->getStudents()) : [];
+                                foreach ($students as $student): 
+                                ?>
+                                    <div class="col">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" name="student_ids[]" 
+                                                   value="<?= $student->getId() ?>" id="student_<?= $student->getId() ?>"
+                                                   <?= in_array($student->getId(), $lessonStudentIds) ? 'checked' : '' ?>>
+                                            <label class="form-check-label" for="student_<?= $student->getId() ?>">
+                                                <?= htmlspecialchars($student->getFullName()) ?>
+                                                (<?= $student->getLessonsRemaining() ?> lessons remaining)
+                                            </label>
                                         </div>
-                                    <?php endforeach; ?>
-                                </div>
+                                    </div>
+                                <?php endforeach; ?>
                             </div>
-                        <?php else: ?>
+                        </div>
+
+                        <?php if ($action === 'edit' && $lesson && count($lesson->getStudents()) > 0): ?>
                             <div class="mb-3">
                                 <label class="form-label">Student Attendance</label>
                                 <div class="table-responsive">
@@ -294,10 +390,12 @@ $locations = Location::findAll();
                                 </div>
                             </div>
                         <?php endif; ?>
-                        
-                        <div class="d-flex gap-2">
-                            <button type="submit" class="btn btn-primary">Save</button>
-                            <a href="/lessons.php" class="btn btn-secondary">Cancel</a>
+
+                        <div class="mt-3">
+                            <button type="submit" class="btn btn-primary">
+                                <?= $action === 'create' ? 'Create Lesson' : 'Save Changes' ?>
+                            </button>
+                            <a href="/lessons.php" class="btn btn-secondary ms-2">Cancel</a>
                         </div>
                     </form>
                 </div>
@@ -359,32 +457,36 @@ $locations = Location::findAll();
                                             </td>
                                             <td>
                                                 <?php if ($l->getGoogleEventId()): ?>
-                                                    <a href="https://calendar.google.com/calendar/event?eid=<?= htmlspecialchars($l->getGoogleEventId()) ?>" 
-                                                       target="_blank" class="btn btn-sm btn-link calendar-synced" title="View in Google Calendar">
-                                                        <i class="bi bi-calendar2-check"></i>
-                                                    </a>
+                                                    <span class="badge bg-success">
+                                                        <i class="bi bi-calendar2-check"></i> Synced
+                                                    </span>
                                                 <?php else: ?>
-                                                    <form method="POST" action="/lessons.php" class="d-inline">
-                                                        <input type="hidden" name="action" value="sync">
-                                                        <input type="hidden" name="id" value="<?= $l->getId() ?>">
-                                                        <button type="submit" class="btn btn-sm btn-link calendar-not-synced" title="Sync to Google Calendar">
-                                                            <i class="bi bi-calendar2-plus"></i>
-                                                        </button>
-                                                    </form>
+                                                    <span class="badge bg-warning">
+                                                        <i class="bi bi-calendar2-x"></i> Not synced
+                                                    </span>
                                                 <?php endif; ?>
                                             </td>
                                             <td>
                                                 <div class="btn-group">
                                                     <a href="/lessons.php?action=edit&id=<?= $l->getId() ?>" 
-                                                       class="btn btn-sm btn-outline-primary">
+                                                       class="btn btn-sm btn-outline-primary" title="Edit">
                                                         <i class="bi bi-pencil"></i>
                                                     </a>
                                                     <form method="POST" action="/lessons.php" class="d-inline">
                                                         <input type="hidden" name="action" value="delete">
-                                                        <input type="hidden" name="id" value="<?= $l->getId() ?>">
+                                                        <input type="hidden" name="lesson_id" value="<?= $l->getId() ?>">
                                                         <button type="submit" class="btn btn-sm btn-outline-danger" 
+                                                                title="Delete"
                                                                 onclick="return confirm('Are you sure you want to delete this lesson?')">
                                                             <i class="bi bi-trash"></i>
+                                                        </button>
+                                                    </form>
+                                                    <form method="POST" action="/lessons.php" class="d-inline">
+                                                        <input type="hidden" name="action" value="sync">
+                                                        <input type="hidden" name="lesson_id" value="<?= $l->getId() ?>">
+                                                        <button type="submit" class="btn btn-sm btn-outline-success" 
+                                                               title="<?= $l->getGoogleEventId() ? 'Update in Google Calendar' : 'Sync to Google Calendar' ?>">
+                                                            <i class="bi bi-calendar2-plus"></i>
                                                         </button>
                                                     </form>
                                                 </div>
@@ -409,23 +511,51 @@ $locations = Location::findAll();
             const entryCodeInput = document.getElementById('entry_code');
             
             if (locationSelect && entryCodeField && entryCodeInput) {
+                // Store the original entry code value when the page loads
+                const originalEntryCode = entryCodeInput.value;
+                console.log('Original entry code value:', originalEntryCode);
+                
                 function updateEntryCodeField() {
                     const selectedOption = locationSelect.options[locationSelect.selectedIndex];
+                    if (!selectedOption) return;
+                    
                     const hasEntryCode = selectedOption.dataset.hasEntryCode === '1';
                     const defaultCode = selectedOption.dataset.defaultCode;
                     
-                    entryCodeField.style.display = hasEntryCode ? 'block' : 'none';
+                    // Only show the entry code field if the location requires it
+                    if (hasEntryCode) {
+                        entryCodeField.style.display = 'block';
+                        console.log('Showing entry code field: Location requires entry code');
+                    } else {
+                        entryCodeField.style.display = 'none';
+                        console.log('Hiding entry code field: Location does not require entry code');
+                        // Clear the entry code value if the location doesn't require it
+                        if (entryCodeInput.value) {
+                            console.log('Clearing entry code value');
+                            entryCodeInput.value = '';
+                        }
+                    }
                     
-                    // Only set default code if the input is empty or changing location
-                    if (hasEntryCode && (!entryCodeInput.value || locationSelect.dataset.previousValue !== locationSelect.value)) {
-                        entryCodeInput.value = defaultCode;
+                    // Only set default code if the location requires it and we're changing to a new location
+                    if (hasEntryCode && locationSelect.dataset.previousValue !== locationSelect.value) {
+                        // Don't overwrite existing value when editing
+                        if (!entryCodeInput.value) {
+                            entryCodeInput.value = defaultCode || '';
+                            console.log('Setting default code:', defaultCode);
+                        }
                     }
                     
                     locationSelect.dataset.previousValue = locationSelect.value;
                 }
                 
                 locationSelect.addEventListener('change', updateEntryCodeField);
-                updateEntryCodeField();
+                
+                // Trigger immediately on page load
+                setTimeout(updateEntryCodeField, 0);
+                
+                // Debug output
+                console.log('Initial entry code value:', entryCodeInput.value);
+                console.log('Entry code field display:', entryCodeField.style.display);
             }
         });
     </script>

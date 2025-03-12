@@ -120,6 +120,15 @@ class GoogleCalendarService
                     ],
                 ],
             ]);
+            
+            // Add location if available
+            if ($location = $lesson->getLocation()) {
+                $locationText = $location->getName();
+                if ($location->getAddress()) {
+                    $locationText .= ' (' . $location->getAddress() . ')';
+                }
+                $event->setLocation($locationText);
+            }
 
             error_log("Attempting to insert event into calendar: " . $this->calendarId);
             $event = $this->service->events->insert($this->calendarId, $event);
@@ -155,6 +164,15 @@ class GoogleCalendarService
             'dateTime' => $this->formatDateTime($lesson->getLessonDate(), $lesson->getEndTime()),
             'timeZone' => 'Europe/Amsterdam',
         ]));
+
+        // Add location if available
+        if ($location = $lesson->getLocation()) {
+            $locationText = $location->getName();
+            if ($location->getAddress()) {
+                $locationText .= ' (' . $location->getAddress() . ')';
+            }
+            $event->setLocation($locationText);
+        }
 
         return $this->service->events->update($this->calendarId, $lesson->getGoogleEventId(), $event);
     }
@@ -210,17 +228,28 @@ class GoogleCalendarService
     }
 
     private function buildEventData(Lesson $lesson, array $students): array {
-        $description = "Students:\n";
+        // Start with instructor information
+        $description = "Instructor: " . $lesson->getInstructor() . "\n\n";
+        
+        // Add entry code to description if available - make it VERY prominent at the top
+        if ($lesson->getEntryCode()) {
+            $description = "🔑 ENTRY CODE: " . $lesson->getEntryCode() . " 🔑\n\n" . $description;
+        }
+        
+        // Add students
+        $description .= "Students:\n";
         foreach ($students as $student) {
             $description .= "- " . $student->getFullName() . "\n";
         }
         
+        // Add notes if available
         if ($lesson->getNotes()) {
             $description .= "\nNotes:\n" . $lesson->getNotes();
         }
 
+        // Build the event data array
         $eventData = [
-            'summary' => 'Padelles met ' . $students[0]->getFirstName(),
+            'summary' => !empty($students) ? 'Padelles met ' . $students[0]->getFirstName() : 'Padel Lesson',
             'description' => $description,
             'start' => [
                 'dateTime' => $lesson->getStartDateTime()->format('c'),
@@ -240,40 +269,156 @@ class GoogleCalendarService
 
         // Add location if set
         if ($location = $lesson->getLocation()) {
+            error_log("Setting location for event: " . $location->getName());
             $eventData['location'] = $location->getName();
             if ($location->getAddress()) {
                 $eventData['location'] .= ', ' . $location->getAddress();
             }
+            
+            // Also add entry code to location if available
+            if ($lesson->getEntryCode()) {
+                $eventData['location'] .= ' (Code: ' . $lesson->getEntryCode() . ')';
+            }
+        } else {
+            error_log("No location found for lesson ID: " . $lesson->getId());
         }
 
+        error_log("Entry code in event data: " . ($lesson->getEntryCode() ?? 'None'));
         return $eventData;
     }
 
     public function createLessonEvent(Lesson $lesson, array $students): ?string {
         try {
-            $event = $this->service->events->insert(
-                $this->calendarId,
-                new \Google_Service_Calendar_Event($this->buildEventData($lesson, $students))
-            );
+            error_log("Creating Google Calendar event for lesson ID: " . $lesson->getId());
             
-            return $event->getId();
+            // Build the event data
+            $eventData = $this->buildEventData($lesson, $students);
+            error_log("Event data for creation: " . json_encode($eventData));
+            
+            // Create the event
+            $event = new \Google_Service_Calendar_Event($eventData);
+            $createdEvent = $this->service->events->insert($this->calendarId, $event);
+            
+            $eventId = $createdEvent->getId();
+            error_log("Successfully created event with ID: " . $eventId);
+            
+            return $eventId;
         } catch (\Exception $e) {
             error_log("Failed to create Google Calendar event: " . $e->getMessage());
+            error_log("Exception trace: " . $e->getTraceAsString());
             return null;
         }
     }
 
     public function updateLessonEvent(string $eventId, Lesson $lesson, array $students): bool {
         try {
-            $this->service->events->update(
-                $this->calendarId,
-                $eventId,
-                new \Google_Service_Calendar_Event($this->buildEventData($lesson, $students))
-            );
+            error_log("Updating Google Calendar event: " . $eventId);
+            error_log("Lesson data: " . json_encode([
+                'id' => $lesson->getId(),
+                'date' => $lesson->getLessonDate(),
+                'start' => $lesson->getStartTime(),
+                'end' => $lesson->getEndTime(),
+                'location_id' => $lesson->getLocationId(),
+                'entry_code' => $lesson->getEntryCode()
+            ]));
             
-            return true;
+            // Build the event data
+            $eventData = $this->buildEventData($lesson, $students);
+            error_log("Event data for update: " . json_encode($eventData));
+            
+            // Direct API approach - get the event first
+            try {
+                // Get the existing event
+                $existingEvent = $this->service->events->get($this->calendarId, $eventId);
+                error_log("Successfully retrieved existing event: " . $eventId);
+                
+                // Log the current event data for debugging
+                error_log("Current event summary: " . $existingEvent->getSummary());
+                error_log("Current event description: " . $existingEvent->getDescription());
+                error_log("Current event location: " . $existingEvent->getLocation());
+                
+                // Update all fields manually
+                $existingEvent->setSummary($eventData['summary']);
+                $existingEvent->setDescription($eventData['description']);
+                
+                // Set start time
+                $startDateTime = new Google_Service_Calendar_EventDateTime();
+                $startDateTime->setDateTime($eventData['start']['dateTime']);
+                $startDateTime->setTimeZone($eventData['start']['timeZone']);
+                $existingEvent->setStart($startDateTime);
+                
+                // Set end time
+                $endDateTime = new Google_Service_Calendar_EventDateTime();
+                $endDateTime->setDateTime($eventData['end']['dateTime']);
+                $endDateTime->setTimeZone($eventData['end']['timeZone']);
+                $existingEvent->setEnd($endDateTime);
+                
+                // Set location if available
+                if (isset($eventData['location'])) {
+                    $existingEvent->setLocation($eventData['location']);
+                    error_log("Setting location to: " . $eventData['location']);
+                }
+                
+                // Set reminders
+                $reminders = new \Google_Service_Calendar_EventReminders();
+                $reminders->setUseDefault(false);
+                $reminderOverrides = [];
+                foreach ($eventData['reminders']['overrides'] as $override) {
+                    $reminderOverride = new \Google_Service_Calendar_EventReminder();
+                    $reminderOverride->setMethod($override['method']);
+                    $reminderOverride->setMinutes($override['minutes']);
+                    $reminderOverrides[] = $reminderOverride;
+                }
+                $reminders->setOverrides($reminderOverrides);
+                $existingEvent->setReminders($reminders);
+                
+                // Update the event
+                $updatedEvent = $this->service->events->update($this->calendarId, $eventId, $existingEvent);
+                error_log("Successfully updated event with ID: " . $updatedEvent->getId());
+                
+                // Verify the update was successful
+                $verifiedEvent = $this->service->events->get($this->calendarId, $updatedEvent->getId());
+                error_log("Verified event description: " . $verifiedEvent->getDescription());
+                error_log("Verified event location: " . $verifiedEvent->getLocation());
+                
+                return true;
+            } catch (\Exception $e) {
+                error_log("Error updating existing event: " . $e->getMessage());
+                error_log("Attempting to recreate event...");
+                
+                // If we can't update, try to delete and recreate
+                try {
+                    // Delete the old event
+                    $this->service->events->delete($this->calendarId, $eventId);
+                    error_log("Successfully deleted old event: " . $eventId);
+                    
+                    // Create a new event
+                    $newEvent = new \Google_Service_Calendar_Event($eventData);
+                    $createdEvent = $this->service->events->insert($this->calendarId, $newEvent);
+                    
+                    // Update the lesson with the new event ID
+                    $lesson->update(['google_event_id' => $createdEvent->getId()]);
+                    error_log("Successfully recreated event with new ID: " . $createdEvent->getId());
+                    
+                    return true;
+                } catch (\Exception $recreateEx) {
+                    error_log("Failed to recreate event: " . $recreateEx->getMessage());
+                    return false;
+                }
+            }
         } catch (\Exception $e) {
             error_log("Failed to update Google Calendar event: " . $e->getMessage());
+            error_log("Exception trace: " . $e->getTraceAsString());
+            return false;
+        }
+    }
+
+    public function deleteLessonEvent(string $eventId): bool {
+        try {
+            $this->service->events->delete($this->calendarId, $eventId);
+            return true;
+        } catch (\Exception $e) {
+            error_log("Failed to delete Google Calendar event: " . $e->getMessage());
             return false;
         }
     }
