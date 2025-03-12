@@ -258,36 +258,6 @@ usort($studentsNeedingLessons, fn($a, $b) => $a->getLessonsRemaining() <=> $b->g
             </div>
         </div>
 
-        <!-- Quick Actions -->
-        <div class="row">
-            <div class="col-12 mb-4">
-                <div class="card">
-                    <div class="card-header">
-                        <h5 class="mb-0">Quick Actions</h5>
-                    </div>
-                    <div class="card-body">
-                        <div class="row g-3">
-                            <div class="col-md-4">
-                                <a href="/students.php?action=create" class="btn btn-success w-100">
-                                    <i class="bi bi-person-plus"></i> Add New Student
-                                </a>
-                            </div>
-                            <div class="col-md-4">
-                                <a href="/lessons.php?action=create" class="btn btn-success w-100">
-                                    <i class="bi bi-calendar-plus"></i> Schedule New Lesson
-                                </a>
-                            </div>
-                            <div class="col-md-4">
-                                <a href="/lessons.php" class="btn btn-primary w-100">
-                                    <i class="bi bi-calendar-week"></i> View All Lessons
-                                </a>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
         <!-- Upcoming Lessons -->
         <div class="row">
             <div class="col-12">

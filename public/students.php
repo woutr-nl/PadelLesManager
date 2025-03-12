@@ -19,7 +19,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $data = [
             'first_name' => $_POST['first_name'] ?? '',
             'last_name' => $_POST['last_name'] ?? '',
-            'email' => $_POST['email'] ?? '',
             'phone' => $_POST['phone'] ?? ''
         ];
         
@@ -157,12 +156,6 @@ $students = Student::findAll();
                         </div>
                         
                         <div class="mb-3">
-                            <label for="email" class="form-label">Email</label>
-                            <input type="email" class="form-control" id="email" name="email" 
-                                   value="<?= $student ? htmlspecialchars($student->getEmail()) : '' ?>" required>
-                        </div>
-                        
-                        <div class="mb-3">
                             <label for="phone" class="form-label">Phone</label>
                             <input type="tel" class="form-control" id="phone" name="phone" 
                                    value="<?= $student ? htmlspecialchars($student->getPhone()) : '' ?>">
@@ -266,7 +259,6 @@ $students = Student::findAll();
                                 <thead>
                                     <tr>
                                         <th>Name</th>
-                                        <th>Email</th>
                                         <th>Phone</th>
                                         <th>Lessons Remaining</th>
                                         <th>Actions</th>
@@ -276,7 +268,6 @@ $students = Student::findAll();
                                     <?php foreach ($students as $s): ?>
                                         <tr>
                                             <td><?= htmlspecialchars($s->getFullName()) ?></td>
-                                            <td><?= htmlspecialchars($s->getEmail()) ?></td>
                                             <td><?= htmlspecialchars($s->getPhone()) ?></td>
                                             <td>
                                                 <?php

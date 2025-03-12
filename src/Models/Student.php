@@ -9,7 +9,7 @@ class Student {
     private int $id;
     private string $firstName;
     private string $lastName;
-    private string $email;
+    private ?string $email;
     private ?string $phone;
     private int $lessonsRemaining;
     private string $createdAt;
@@ -19,7 +19,7 @@ class Student {
         $this->id = $data['id'] ?? 0;
         $this->firstName = $data['first_name'] ?? '';
         $this->lastName = $data['last_name'] ?? '';
-        $this->email = $data['email'] ?? '';
+        $this->email = $data['email'] ?? null;
         $this->phone = $data['phone'] ?? null;
         $this->lessonsRemaining = $data['lessons_remaining'] ?? 0;
         $this->createdAt = $data['created_at'] ?? '';
@@ -29,8 +29,8 @@ class Student {
     public static function create(array $data): ?Student {
         try {
             $stmt = Database::query(
-                "INSERT INTO students (first_name, last_name, email, phone, lessons_remaining) VALUES (?, ?, ?, ?, ?)",
-                [$data['first_name'], $data['last_name'], $data['email'], $data['phone'] ?? null, $data['lessons_remaining'] ?? 0]
+                "INSERT INTO students (first_name, last_name, phone, lessons_remaining) VALUES (?, ?, ?, ?)",
+                [$data['first_name'], $data['last_name'], $data['phone'] ?? null, $data['lessons_remaining'] ?? 0]
             );
             
             if ($stmt->rowCount() > 0) {
@@ -59,11 +59,10 @@ class Student {
     public function update(array $data): bool {
         try {
             $stmt = Database::query(
-                "UPDATE students SET first_name = ?, last_name = ?, email = ?, phone = ?, lessons_remaining = ? WHERE id = ?",
+                "UPDATE students SET first_name = ?, last_name = ?, phone = ?, lessons_remaining = ? WHERE id = ?",
                 [
                     $data['first_name'] ?? $this->firstName,
                     $data['last_name'] ?? $this->lastName,
-                    $data['email'] ?? $this->email,
                     $data['phone'] ?? $this->phone,
                     $data['lessons_remaining'] ?? $this->lessonsRemaining,
                     $this->id
@@ -73,7 +72,6 @@ class Student {
             if ($stmt->rowCount() > 0) {
                 $this->firstName = $data['first_name'] ?? $this->firstName;
                 $this->lastName = $data['last_name'] ?? $this->lastName;
-                $this->email = $data['email'] ?? $this->email;
                 $this->phone = $data['phone'] ?? $this->phone;
                 $this->lessonsRemaining = $data['lessons_remaining'] ?? $this->lessonsRemaining;
                 return true;
@@ -156,7 +154,7 @@ class Student {
         return $this->firstName . ' ' . $this->lastName;
     }
 
-    public function getEmail(): string {
+    public function getEmail(): ?string {
         return $this->email;
     }
 
