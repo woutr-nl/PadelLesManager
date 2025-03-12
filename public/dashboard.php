@@ -111,6 +111,9 @@ usort($studentsNeedingLessons, fn($a, $b) => $a->getLessonsRemaining() <=> $b->g
                     <li class="nav-item">
                         <a class="nav-link" href="/lessons.php">Lessons</a>
                     </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/locations.php">Locations</a>
+                    </li>
                 </ul>
                 <ul class="navbar-nav">
                     <li class="nav-item">
@@ -280,6 +283,8 @@ usort($studentsNeedingLessons, fn($a, $b) => $a->getLessonsRemaining() <=> $b->g
                                             <th>Date</th>
                                             <th>Time</th>
                                             <th>Instructor</th>
+                                            <th>Location</th>
+                                            <th>Entry Code</th>
                                             <th>Students</th>
                                             <th>Status</th>
                                         </tr>
@@ -294,7 +299,7 @@ usort($studentsNeedingLessons, fn($a, $b) => $a->getLessonsRemaining() <=> $b->g
                                         ?>
                                             <?php if ($isNewDate): ?>
                                                 <tr class="table-light">
-                                                    <td colspan="5" class="fw-bold">
+                                                    <td colspan="7" class="fw-bold">
                                                         <?= date('l, F j', strtotime($lesson->getLessonDate())) ?>
                                                     </td>
                                                 </tr>
@@ -310,6 +315,24 @@ usort($studentsNeedingLessons, fn($a, $b) => $a->getLessonsRemaining() <=> $b->g
                                                     </strong>
                                                 </td>
                                                 <td><?= htmlspecialchars($lesson->getInstructor()) ?></td>
+                                                <td>
+                                                    <?php if ($location = $lesson->getLocation()): ?>
+                                                        <?= htmlspecialchars($location->getName()) ?>
+                                                    <?php else: ?>
+                                                        <span class="text-muted">No location set</span>
+                                                    <?php endif; ?>
+                                                </td>
+                                                <td>
+                                                    <?php if ($location = $lesson->getLocation()): ?>
+                                                        <?php if ($location->hasEntryCode()): ?>
+                                                            <?php if ($lesson->getEntryCode()): ?>
+                                                                <span class="badge bg-info"><?= htmlspecialchars($lesson->getEntryCode()) ?></span>
+                                                            <?php else: ?>
+                                                                <span class="badge bg-warning">Not set</span>
+                                                            <?php endif; ?>
+                                                        <?php endif; ?>
+                                                    <?php endif; ?>
+                                                </td>
                                                 <td>
                                                     <?php foreach ($lesson->getStudents() as $student): ?>
                                                         <span class="badge bg-secondary">

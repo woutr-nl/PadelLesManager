@@ -3,6 +3,7 @@ require_once __DIR__ . '/../vendor/autoload.php';
 
 use App\Models\Lesson;
 use App\Models\Student;
+use App\Models\Location;
 use App\Middleware\AuthMiddleware;
 use App\Services\GoogleCalendarService;
 
@@ -24,6 +25,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'start_time' => $_POST['start_time'] ?? '',
             'end_time' => $_POST['end_time'] ?? '',
             'instructor' => $_POST['instructor'] ?? '',
+            'location_id' => $_POST['location_id'] ?? null,
             'notes' => $_POST['notes'] ?? ''
         ];
         
@@ -125,6 +127,7 @@ if ($action === 'edit' || $action === 'delete') {
 
 $lessons = Lesson::findAll();
 $students = Student::findAll();
+$locations = Location::findAll();
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -215,6 +218,30 @@ $students = Student::findAll();
                             <input type="text" class="form-control" id="instructor" name="instructor" 
                                    value="<?= $lesson ? htmlspecialchars($lesson->getInstructor()) : '' ?>" required>
                         </div>
+
+                        <div class="mb-3">
+                            <label for="location_id" class="form-label">Location</label>
+                            <select class="form-select" id="location_id" name="location_id">
+                                <option value="">Select a location...</option>
+                                <?php foreach ($locations as $loc): ?>
+                                    <option value="<?= $loc->getId() ?>" 
+                                            data-has-entry-code="<?= $loc->hasEntryCode() ? '1' : '0' ?>"
+                                            data-default-code="<?= htmlspecialchars($loc->getDefaultEntryCode() ?? '') ?>"
+                                            <?= ($lesson && $lesson->getLocationId() === $loc->getId()) ? 'selected' : '' ?>>
+                                        <?= htmlspecialchars($loc->getName()) ?>
+                                        <?= $loc->getAddress() ? ' (' . htmlspecialchars($loc->getAddress()) . ')' : '' ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+
+                        <div class="mb-3 entry-code-field" style="display: none;">
+                            <label for="entry_code" class="form-label">Entry Code</label>
+                            <input type="text" class="form-control" id="entry_code" name="entry_code" 
+                                   value="<?= $lesson ? htmlspecialchars($lesson->getEntryCode()) : '' ?>"
+                                   maxlength="20">
+                            <div class="form-text">The code needed to enter this location for this lesson.</div>
+                        </div>
                         
                         <div class="mb-3">
                             <label for="notes" class="form-label">Notes</label>
@@ -294,32 +321,52 @@ $students = Student::findAll();
                                         <th>Date</th>
                                         <th>Time</th>
                                         <th>Instructor</th>
+                                        <th>Location</th>
+                                        <th>Entry Code</th>
                                         <th>Students</th>
                                         <th>Calendar</th>
                                         <th>Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    <?php foreach ($lessons as $lesson): ?>
+                                    <?php foreach ($lessons as $l): ?>
                                         <tr>
-                                            <td><?= htmlspecialchars($lesson->getLessonDate()) ?></td>
-                                            <td><?= htmlspecialchars($lesson->getStartTime()) ?> - <?= htmlspecialchars($lesson->getEndTime()) ?></td>
-                                            <td><?= htmlspecialchars($lesson->getInstructor()) ?></td>
+                                            <td><?= htmlspecialchars(date('d-m-Y', strtotime($l->getLessonDate()))) ?></td>
+                                            <td><?= htmlspecialchars($l->getStartTime() . ' - ' . $l->getEndTime()) ?></td>
+                                            <td><?= htmlspecialchars($l->getInstructor()) ?></td>
                                             <td>
-                                                <?php foreach ($lesson->getStudents() as $student): ?>
+                                                <?php if ($location = $l->getLocation()): ?>
+                                                    <?= htmlspecialchars($location->getName()) ?>
+                                                <?php else: ?>
+                                                    <span class="text-muted">No location set</span>
+                                                <?php endif; ?>
+                                            </td>
+                                            <td>
+                                                <?php if ($location = $l->getLocation()): ?>
+                                                    <?php if ($location->hasEntryCode()): ?>
+                                                        <?php if ($l->getEntryCode()): ?>
+                                                            <span class="badge bg-info"><?= htmlspecialchars($l->getEntryCode()) ?></span>
+                                                        <?php else: ?>
+                                                            <span class="badge bg-warning">Not set</span>
+                                                        <?php endif; ?>
+                                                    <?php endif; ?>
+                                                <?php endif; ?>
+                                            </td>
+                                            <td>
+                                                <?php foreach ($l->getStudents() as $student): ?>
                                                     <span class="badge bg-primary"><?= htmlspecialchars($student->getFullName()) ?></span>
                                                 <?php endforeach; ?>
                                             </td>
                                             <td>
-                                                <?php if ($lesson->getGoogleEventId()): ?>
-                                                    <a href="https://calendar.google.com/calendar/event?eid=<?= htmlspecialchars($lesson->getGoogleEventId()) ?>" 
+                                                <?php if ($l->getGoogleEventId()): ?>
+                                                    <a href="https://calendar.google.com/calendar/event?eid=<?= htmlspecialchars($l->getGoogleEventId()) ?>" 
                                                        target="_blank" class="btn btn-sm btn-link calendar-synced" title="View in Google Calendar">
                                                         <i class="bi bi-calendar2-check"></i>
                                                     </a>
                                                 <?php else: ?>
                                                     <form method="POST" action="/lessons.php" class="d-inline">
                                                         <input type="hidden" name="action" value="sync">
-                                                        <input type="hidden" name="id" value="<?= $lesson->getId() ?>">
+                                                        <input type="hidden" name="id" value="<?= $l->getId() ?>">
                                                         <button type="submit" class="btn btn-sm btn-link calendar-not-synced" title="Sync to Google Calendar">
                                                             <i class="bi bi-calendar2-plus"></i>
                                                         </button>
@@ -328,13 +375,13 @@ $students = Student::findAll();
                                             </td>
                                             <td>
                                                 <div class="btn-group">
-                                                    <a href="/lessons.php?action=edit&id=<?= $lesson->getId() ?>" 
+                                                    <a href="/lessons.php?action=edit&id=<?= $l->getId() ?>" 
                                                        class="btn btn-sm btn-outline-primary">
                                                         <i class="bi bi-pencil"></i>
                                                     </a>
                                                     <form method="POST" action="/lessons.php" class="d-inline">
                                                         <input type="hidden" name="action" value="delete">
-                                                        <input type="hidden" name="id" value="<?= $lesson->getId() ?>">
+                                                        <input type="hidden" name="id" value="<?= $l->getId() ?>">
                                                         <button type="submit" class="btn btn-sm btn-outline-danger" 
                                                                 onclick="return confirm('Are you sure you want to delete this lesson?')">
                                                             <i class="bi bi-trash"></i>
@@ -354,5 +401,33 @@ $students = Student::findAll();
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Handle entry code field visibility and default value
+        document.addEventListener('DOMContentLoaded', function() {
+            const locationSelect = document.getElementById('location_id');
+            const entryCodeField = document.querySelector('.entry-code-field');
+            const entryCodeInput = document.getElementById('entry_code');
+            
+            if (locationSelect && entryCodeField && entryCodeInput) {
+                function updateEntryCodeField() {
+                    const selectedOption = locationSelect.options[locationSelect.selectedIndex];
+                    const hasEntryCode = selectedOption.dataset.hasEntryCode === '1';
+                    const defaultCode = selectedOption.dataset.defaultCode;
+                    
+                    entryCodeField.style.display = hasEntryCode ? 'block' : 'none';
+                    
+                    // Only set default code if the input is empty or changing location
+                    if (hasEntryCode && (!entryCodeInput.value || locationSelect.dataset.previousValue !== locationSelect.value)) {
+                        entryCodeInput.value = defaultCode;
+                    }
+                    
+                    locationSelect.dataset.previousValue = locationSelect.value;
+                }
+                
+                locationSelect.addEventListener('change', updateEntryCodeField);
+                updateEntryCodeField();
+            }
+        });
+    </script>
 </body>
 </html> 

@@ -13,10 +13,12 @@ class Lesson {
     private string $startTime;
     private string $endTime;
     private string $instructor;
+    private ?int $locationId;
     private ?string $notes;
     private ?string $googleEventId;
     private string $createdAt;
     private array $students = [];
+    private ?Location $location = null;
 
     public function __construct(array $data = []) {
         $this->id = $data['id'] ?? 0;
@@ -24,6 +26,7 @@ class Lesson {
         $this->startTime = $data['start_time'] ?? '';
         $this->endTime = $data['end_time'] ?? '';
         $this->instructor = $data['instructor'] ?? '';
+        $this->locationId = $data['location_id'] ?? null;
         $this->notes = $data['notes'] ?? null;
         $this->googleEventId = $data['google_event_id'] ?? null;
         $this->createdAt = $data['created_at'] ?? '';
@@ -35,8 +38,15 @@ class Lesson {
 
             // Create the lesson
             $stmt = Database::query(
-                "INSERT INTO lessons (lesson_date, start_time, end_time, instructor, notes) VALUES (?, ?, ?, ?, ?)",
-                [$data['lesson_date'], $data['start_time'], $data['end_time'], $data['instructor'], $data['notes'] ?? null]
+                "INSERT INTO lessons (lesson_date, start_time, end_time, instructor, location_id, notes) VALUES (?, ?, ?, ?, ?, ?)",
+                [
+                    $data['lesson_date'],
+                    $data['start_time'],
+                    $data['end_time'],
+                    $data['instructor'],
+                    $data['location_id'] ?? null,
+                    $data['notes'] ?? null
+                ]
             );
             
             if ($stmt->rowCount() > 0) {
@@ -90,12 +100,13 @@ class Lesson {
 
             // Update basic lesson information
             $stmt = Database::query(
-                "UPDATE lessons SET lesson_date = ?, start_time = ?, end_time = ?, instructor = ?, notes = ? WHERE id = ?",
+                "UPDATE lessons SET lesson_date = ?, start_time = ?, end_time = ?, instructor = ?, location_id = ?, notes = ? WHERE id = ?",
                 [
                     $data['lesson_date'] ?? $this->lessonDate,
                     $data['start_time'] ?? $this->startTime,
                     $data['end_time'] ?? $this->endTime,
                     $data['instructor'] ?? $this->instructor,
+                    $data['location_id'] ?? $this->locationId,
                     $data['notes'] ?? $this->notes,
                     $this->id
                 ]
@@ -154,7 +165,9 @@ class Lesson {
             $this->startTime = $data['start_time'] ?? $this->startTime;
             $this->endTime = $data['end_time'] ?? $this->endTime;
             $this->instructor = $data['instructor'] ?? $this->instructor;
+            $this->locationId = $data['location_id'] ?? $this->locationId;
             $this->notes = $data['notes'] ?? $this->notes;
+            $this->location = null; // Reset cached location
             
             return true;
         } catch (\Exception $e) {
@@ -346,5 +359,16 @@ class Lesson {
             error_log("Failed to update student status: " . $e->getMessage());
             return false;
         }
+    }
+
+    public function getLocation(): ?Location {
+        if ($this->location === null && $this->locationId !== null) {
+            $this->location = Location::findById($this->locationId);
+        }
+        return $this->location;
+    }
+
+    public function getLocationId(): ?int {
+        return $this->locationId;
     }
 } 

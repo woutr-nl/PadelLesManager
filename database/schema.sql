@@ -8,6 +8,16 @@ CREATE TABLE IF NOT EXISTS users (
     is_admin BOOLEAN NOT NULL DEFAULT FALSE
 );
 
+-- Locations table
+CREATE TABLE IF NOT EXISTS locations (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    address TEXT,
+    has_entry_code BOOLEAN NOT NULL DEFAULT FALSE,
+    default_entry_code VARCHAR(20),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Students table
 CREATE TABLE IF NOT EXISTS students (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -26,9 +36,12 @@ CREATE TABLE IF NOT EXISTS lessons (
     start_time TIME NOT NULL,
     end_time TIME NOT NULL,
     instructor VARCHAR(100) NOT NULL,
+    location_id INT,
+    entry_code VARCHAR(20),
     notes TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    google_event_id VARCHAR(255) NULL
+    google_event_id VARCHAR(255) NULL,
+    FOREIGN KEY (location_id) REFERENCES locations(id) ON DELETE SET NULL
 );
 
 -- Student-Lesson pivot table
