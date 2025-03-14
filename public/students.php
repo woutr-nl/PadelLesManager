@@ -102,7 +102,7 @@ $students = Student::findAll();
     </style>
 </head>
 <body>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+<nav class="navbar navbar-expand-lg navbar-dark bg-primary">
         <div class="container">
             <a class="navbar-brand" href="/dashboard.php">PadelLesManager</a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
@@ -118,6 +118,9 @@ $students = Student::findAll();
                     </li>
                     <li class="nav-item">
                         <a class="nav-link" href="/lessons.php">Lessons</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/locations.php">Locations</a>
                     </li>
                 </ul>
                 <ul class="navbar-nav">
